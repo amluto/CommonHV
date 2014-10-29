@@ -1,7 +1,7 @@
 CommonHV, a common hypervisor interface
 =======================================
 
-This is CommonHV draft 1.
+This is CommonHV draft 2.
 
 The CommonHV specification is Copyright (c) 2014 Andrew Lutomirski.
 
@@ -40,8 +40,8 @@ For now, CommonHV is only applicable to the x86 platform.
 Discovery
 ---------
 
-A CommonHV hypervisor MUST set the hypervisor bit (bit 31 in CPUID.1H.0H.ECX)
-and provide the CPUID leaf 4F000000H, containing:
+A CommonHV hypervisor SHOULD set the hypervisor bit (bit 31 in CPUID.1H.0H.ECX)
+and MUST provide the CPUID leaf 4F000000H, containing:
 
   * CPUID.4F000000H.0H.EAX = max_commonhv_leaf
   * CPUID.4F000000H.0H.EBX = 0x6D6D6F43
@@ -56,6 +56,9 @@ Any leaves described in this specification with EAX values that exceed
 max_commonhv_leaf MUST be handled by guests as though they contain
 all zeros.
 
+If the hypervisor bit is not set, then guests MAY check the CommonHV
+CPUID leaf to detect a hypervisor, but they are not required to.
+
 CPUID leaf 4F000001H: hypervisor interface enumeration
 ------------------------------------------------------
 
@@ -66,13 +69,15 @@ CPUID location.  It is expected that CPUID.location.0H will have
 (EBX, ECX, EDX) == signature, although whether this is required
 is left to the specification associated with the given signature.
 
-If the list contains N tuples, then, for each 0 <= i < N:
+CPUID.4F000001H.0H.EAX contains the number of interface tuples.
+CPUID.4F000001H.0H.EBX, CPUID.4F000001H.0H.ECX, and CPUID.4F000001H.0H.EDX
+are reserved.
+
+If the list contains N tuples, then, for each 1 < i <= N:
 
   * CPUID.4F000001H.i.EBX, CPUID.4F000001H.i.ECX, and CPUID.4F000001H.i.EDX
     are the signature.
   * CPUID.4F000001H.i.EAX is the location.
-
-CPUID with EAX = 0x4F000001 and ECX >= N MUST return all zeros.
 
 To the extent that the hypervisor prefers a given interface, it should
 specify that interface earlier in the list.  For example, KVM might place
@@ -83,18 +88,20 @@ would likely use a different order.
 The exact semantics of the ordering of the list is beyond the scope of
 this specification.
 
-CPUID leaf 4F000002H: miscellaneous features
---------------------------------------------
+CPUID leaf 4F000002H: CommonHV features
+---------------------------------------
 
-CPUID.4F000002H.EAX is nonzero if the CommonHV RNG interface is available.
-CPUID.4F000002H.EBX, CPUID.4F000002H.ECX, and CPUID.4F000002H.EDX are reserved
-and must be zero in hypervisors compliant with this version of the CommonHV
-specification.
+CPUID.4F000002H.EAX bit 0 is set if the the CommonHV RNG interface is available.
+CPUID.4F000002H.EAX bit 1 is set if the CommonHV RNG accepts guest input.
+All other bits in leaf CPUID.4F000002H.0H are reserved.
 
-### CommonHV RNG
+CommonHV RNG
+------------
 
-If CPUID.4F000002H.EAX is nonzero, then it contains an MSR index used to
-communicate with a hypervisor random number generator.  This MSR is
+If the CommonHV RNG is available (as indicated by CPUID.4F000002H.EAX bit 0),
+then max_commonhv_leaf MUST BE at least 0x4F000003.
+
+CPUID.4F000003H.0H.EAX will contain an MSR index.  This MSR is
 referred to as MSR_COMMONHV_RNG.
 
 rdmsr(MSR_COMMONHV_RNG) returns a 64-bit best-effort random number.  If the
@@ -109,18 +116,22 @@ rdmsr(MSR_COMMONHV_RNG) MUST NOT result in an exception, but guests MUST
 NOT assume that its return value is indeed secure.  For example, a hypervisor
 is free to return zero in response to rdmsr(MSR_COMMONHV_RNG).
 
-wrmsr(MSR_COMMONHV_RNG) offers the hypervisor up to 64 bits of entropy.
-The hypervisor MAY use it as it sees fit to improve its own random number
-generator.  A hypervisor SHOULD make a reasonable effort to avoid making
-values written to MSR_COMMONHV_RNG visible to untrusted parties, but
-guests SHOULD NOT write sensitive values to wrmsr(MSR_COMMONHV_RNG).
+If CPUID.4F000002H.0H.EAX bit 1 is set, then wrmsr(MSR_COMMONHV_RNG)
+offers the hypervisor up to 64 bits of entropy.  The hypervisor MAY use
+it as it sees fit to improve its own random number generator.  A
+hypervisor SHOULD make a reasonable effort to avoid making values
+written to MSR_COMMONHV_RNG visible to untrusted parties, but guests
+SHOULD NOT write sensitive values to wrmsr(MSR_COMMONHV_RNG).
 
-A hypervisor is free to ignore wrmsr(MSR_COMMONHV_RNG), but wrmsr to
-MSR_COMMONHV_RNG MUST NOT result in an exception.
+If CPUID.4F000002H.0H.EAX bit 1 is not set, then wrmsr(MSR_COMMONHV_RNG)
+has unspecified behavior.  It may result in #GP.
 
 Note that the CommonHV RNG is not intended to replace stronger, asynchronous
 paravirtual random number generator interfaces.  It is intended primarily
 for seeding guest RNGs early in boot.
+
+Guests SHOULD NOT access MSR_COMMONHV_RNG from performance-critical code
+paths.  Some implementations may be slow.
 
 Future extension
 ----------------
